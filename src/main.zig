@@ -42,5 +42,5 @@ pub fn success(conn: net.Server.Connection) !void {
 }
 
 pub fn not_found(conn: net.Server.Connection) !void {
-    try conn.stream.writeAll("HTTP/1.1 404 NOT FOUND\r\n\r\n");
+    try conn.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
 }

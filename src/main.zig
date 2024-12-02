@@ -13,8 +13,34 @@ pub fn main() !void {
         .reuse_address = true,
     });
     defer listener.deinit();
-    //
-    const connection = try listener.accept();
-    try stdout.print("client connected!", .{});
-    try connection.stream.writer().writeAll("HTTP/1.1 200 OK\r\n\r\n");
+
+    const conn = try listener.accept();
+    defer conn.stream.close();
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a_allocator = arena.allocator();
+
+    const request = try a_allocator.alloc(u8, 1024);
+
+    _ = try conn.stream.read(request);
+
+    var it = std.mem.splitScalar(u8, request, ' ');
+
+    _ = it.next();
+
+    if (std.mem.eql(u8, it.peek().?, "/")){
+        try success(conn);
+    } else {
+        try not_found(conn);
+    }
+
+}
+
+pub fn success(conn: net.Server.Connection) !void {
+    try conn.stream.writeAll("HTTP/1.1 200 OK\r\n\r\n");
+}
+
+pub fn not_found(conn: net.Server.Connection) !void {
+    try conn.stream.writeAll("HTTP/1.1 404 NOT FOUND\r\n\r\n");
 }

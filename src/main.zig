@@ -4,10 +4,8 @@ const net = std.net;
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
     try stdout.print("Logs from your program will appear here!\n", .{});
 
-    // Uncomment this block to pass the first stage
     const address = try net.Address.resolveIp("127.0.0.1", 4221);
     var listener = try address.listen(.{
         .reuse_address = true,
@@ -29,18 +27,17 @@ pub fn main() !void {
 
     _ = it.next();
 
-    if (std.mem.eql(u8, it.peek().?, "/")){
-        try success(conn);
+    var route = it.peek().?;
+
+    if (std.mem.eql(u8, route, "/")){
+        try conn.stream.writeAll("HTTP/1.1 200 OK\r\n\r\n");
+    } else if (std.mem.eql(u8, route[0..6], "/echo/")){
+        const str = route[6..];
+        const response = try std.fmt.allocPrint(a_allocator, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConten-Length:{d}\r\n\r\n{s}", .{str.len, str});
+        try conn.stream.writeAll(response);
     } else {
-        try not_found(conn);
+        try conn.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
     }
 
 }
 
-pub fn success(conn: net.Server.Connection) !void {
-    try conn.stream.writeAll("HTTP/1.1 200 OK\r\n\r\n");
-}
-
-pub fn not_found(conn: net.Server.Connection) !void {
-    try conn.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
-}

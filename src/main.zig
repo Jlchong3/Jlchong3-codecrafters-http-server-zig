@@ -33,7 +33,7 @@ pub fn main() !void {
         try conn.stream.writeAll("HTTP/1.1 200 OK\r\n\r\n");
     } else if (std.mem.eql(u8, route[0..6], "/echo/")){
         const str = route[6..];
-        const response = try std.fmt.allocPrint(a_allocator, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConten-Length:{d}\r\n\r\n{s}", .{str.len, str});
+        const response = try std.fmt.allocPrint(a_allocator, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length:{d}\r\n\r\n{s}", .{str.len, str});
         try conn.stream.writeAll(response);
     } else {
         try conn.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");

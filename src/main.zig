@@ -14,6 +14,7 @@ pub fn main() !void {
     });
     defer listener.deinit();
     //
-    _ = try listener.accept();
+    const connection = try listener.accept();
     try stdout.print("client connected!", .{});
+    try connection.stream.writer().writeAll("HTTP/1.1 200 OK\r\n\r\n");
 }

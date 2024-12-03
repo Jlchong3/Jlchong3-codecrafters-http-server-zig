@@ -4,13 +4,13 @@ const os = std.os;
 const HttpRequest = @import("http_request.zig").HttpRequest;
 const RouteHandler = @import("handlers.zig").RouteHandler;
 
-fn sigchldHandler(sig: i32) callconv (.c) void {
+fn sigchldHandler(sig: i32) callconv (.C) void {
     _ = sig;
     var status: u32 = 0;
     _ = std.os.linux.waitpid(-1, &status, std.posix.W.NOHANG);
 }
 
-fn sigintHandler(sig: i32) callconv (.c) void {
+fn sigintHandler(sig: i32) callconv (.C) void {
     _ = sig;
     std.debug.print("bye\n", .{});
     std.process.exit(0);

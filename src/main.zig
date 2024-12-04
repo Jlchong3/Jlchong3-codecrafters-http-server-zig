@@ -18,6 +18,7 @@ pub fn main() !void {
 
     var listener = try address.listen(.{
         .reuse_address = true,
+        .force_nonblocking = true,
     });
     defer listener.deinit();
 
@@ -32,9 +33,6 @@ pub fn main() !void {
     defer pool.deinit();
 
 
-    const listener_fd = listener.stream.handle;
-    _ = try posix.fcntl(listener_fd, posix.F.SETFL, posix.SOCK.NONBLOCK);
-
     const epfd = posix.epoll_create1(0) catch {
         std.debug.print("Unable to create epoll", .{});
         std.process.exit(0);
@@ -42,7 +40,7 @@ pub fn main() !void {
     defer posix.close(epfd);
 
     var ev = linux.epoll_event{ .events = linux.EPOLL.IN | linux.EPOLL.ET, .data = .{ .ptr = 0 }};
-    try posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, listener_fd, &ev);
+    try posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, listener.stream.handle, &ev);
 
     var ready_list: [128]linux.epoll_event = undefined;
 
@@ -91,7 +89,7 @@ fn handleConnection(epfd: i32, event: linux.epoll_event, allocator: std.mem.Allo
             else {
                 var httpRequest = HttpRequest.init(allocator);
                 defer httpRequest.deinit();
-                httpRequest.parseRequest(request) catch handleError(client);
+                httpRequest.parseRequest(request) catch {handleError(client); return;};
 
                 var handler: RouteHandler = undefined;
                 handler = RouteHandler.getHandler(&httpRequest, allocator, client.socket);

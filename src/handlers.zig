@@ -6,16 +6,17 @@ const HttpRequest = @import("http_request.zig").HttpRequest;
 const ok = "HTTP/1.1 200 OK";
 const notFound = "HTTP/1.1 404 Not Found";
 
-fn send_response(allocator: *std.mem.Allocator, fd: i32,
+fn send_response(allocator: std.mem.Allocator, fd: i32,
                 status: []const u8, headers: ?[]const u8, body: ?[]const u8) !void{
 
-    const response = try std.fmt.allocPrint(allocator.*, "{s}\r\n{s}\r\n{s}", .{status, headers orelse "", body orelse ""});
+    const response = try std.fmt.allocPrint(allocator, "{s}\r\n{s}\r\n{s}", .{status, headers orelse "", body orelse ""});
+    defer allocator.free(response);
     _ = try posix.write(fd, response);
 }
 
 const RootHandler = struct {
     route: []const u8 = "/",
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     fd: i32,
 
     const handlerRoute = "/";
@@ -32,12 +33,12 @@ const RootHandler = struct {
 
 const EchoHandler = struct {
     route: []const u8 = "/echo",
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     fd: i32,
 
     pub fn handle(self: EchoHandler, request: *HttpRequest) !void {
         const response_body = request.route[6..];
-        const header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\n", .{response_body.len});
+        const header = try std.fmt.allocPrint(self.allocator, "Content-Type: text/plain\r\nContent-Length:{d}\r\n", .{response_body.len});
         try send_response(self.allocator, self.fd, ok, header, response_body);
     }
 
@@ -48,13 +49,13 @@ const EchoHandler = struct {
 
 const UserAgentHandler = struct {
     route: []const u8 = "/user-agent",
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     fd: i32,
 
 
     pub fn handle(self: UserAgentHandler, request: *HttpRequest) !void {
         const body = request.headers.get("User-Agent").?;
-        const header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\n", .{body.len});
+        const header = try std.fmt.allocPrint(self.allocator, "Content-Type: text/plain\r\nContent-Length:{d}\r\n", .{body.len});
         try send_response(self.allocator, self.fd, ok, header, body);
     }
 
@@ -65,7 +66,7 @@ const UserAgentHandler = struct {
 
 const NotFoundHandler= struct {
     route: []const u8 = undefined,
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     fd: i32,
 
     pub fn handle(self: NotFoundHandler, request: *HttpRequest) !void{
@@ -97,7 +98,7 @@ pub const RouteHandler = union(enum) {
         }
     }
 
-    pub fn getHandler(request: *HttpRequest, allocator: *std.mem.Allocator, fd: i32 ) RouteHandler {
+    pub fn getHandler(request: *HttpRequest, allocator: std.mem.Allocator, fd: i32 ) RouteHandler {
         const handlers = [_]RouteHandler{
             RouteHandler{ .root = RootHandler{ .allocator = allocator, .fd = fd } },
             RouteHandler{ .echo = EchoHandler{ .allocator = allocator, .fd = fd } },

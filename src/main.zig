@@ -49,12 +49,12 @@ pub fn main() !void {
     while(true){
         const ready_count = posix.epoll_wait(epfd, &ready_list, -1);
         for(ready_list[0..ready_count]) |ready| {
-            try pool.spawn(handleConnection, .{stdout, epfd, ready, allocator.allocator(), &listener});
+            try pool.spawn(handleConnection, .{epfd, ready, allocator.allocator(), &listener});
         }
     }
 }
 
-fn handleConnection(log: std.fs.File.Writer, epfd: i32, event: linux.epoll_event, allocator: std.mem.Allocator, listener: *net.Server) void {
+fn handleConnection(epfd: i32, event: linux.epoll_event, allocator: std.mem.Allocator, listener: *net.Server) void {
     switch(event.data.ptr){
         0 => {
             const conn = listener.accept() catch {
@@ -70,8 +70,6 @@ fn handleConnection(log: std.fs.File.Writer, epfd: i32, event: linux.epoll_event
             errdefer allocator.destroy(client);
 
             client.* = .{.socket = conn.stream.handle};
-
-            log.print("client connected {any}\n", .{conn.stream.handle}) catch handleError(client);
 
             var client_ev = linux.epoll_event{ .events = linux.EPOLL.IN | linux.EPOLL.ET, .data = .{ .ptr  = @intFromPtr(client) }};
             posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, conn.stream.handle, &client_ev) catch handleError(client);
@@ -97,7 +95,6 @@ fn handleConnection(log: std.fs.File.Writer, epfd: i32, event: linux.epoll_event
 
                 var handler: RouteHandler = undefined;
                 handler = RouteHandler.getHandler(&httpRequest, allocator, client.socket);
-                log.print("Sent response to {any}\n", .{client.socket}) catch handleError(client);
 
                 handler.handle(&httpRequest) catch handleError(client);
             }

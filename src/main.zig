@@ -19,7 +19,6 @@ pub fn main() !void {
     defer listener.deinit();
 
     const listener_fd = listener.stream.handle;
-    _ = try posix.fcntl(listener_fd, posix.F.SETFL, posix.SOCK.NONBLOCK);
 
     const epfd = posix.epoll_create1(0) catch {
         std.debug.print("Unable to create epoll", .{});

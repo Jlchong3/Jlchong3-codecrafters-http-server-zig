@@ -5,10 +5,6 @@ const posix = std.posix;
 const HttpRequest = @import("http_request.zig").HttpRequest;
 const RouteHandler = @import("handlers.zig").RouteHandler;
 
-const Client = struct {
-    socket: posix.socket_t,
-};
-
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
@@ -21,17 +17,6 @@ pub fn main() !void {
     });
     defer listener.deinit();
 
-    const page_alloc = std.heap.page_allocator;
-    var allocator: std.heap.ThreadSafeAllocator = .{.child_allocator = page_alloc};
-
-    var pool: std.Thread.Pool = undefined;
-    try pool.init(std.Thread.Pool.Options{
-        .allocator = allocator.child_allocator,
-        .n_jobs = 16,
-    });
-    defer pool.deinit();
-
-
     const listener_fd = listener.stream.handle;
     _ = try posix.fcntl(listener_fd, posix.F.SETFL, posix.SOCK.NONBLOCK);
 
@@ -41,7 +26,7 @@ pub fn main() !void {
     };
     defer posix.close(epfd);
 
-    var ev = linux.epoll_event{ .events = linux.EPOLL.IN | linux.EPOLL.ET, .data = .{ .ptr = 0 }};
+    var ev = linux.epoll_event{ .events = linux.EPOLL.IN, .data = .{ .fd = listener_fd }};
     try posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, listener_fd, &ev);
 
     var ready_list: [128]linux.epoll_event = undefined;
@@ -49,64 +34,42 @@ pub fn main() !void {
     while(true){
         const ready_count = posix.epoll_wait(epfd, &ready_list, -1);
         for(ready_list[0..ready_count]) |ready| {
-            try pool.spawn(handleConnection, .{epfd, ready, allocator.allocator(), &listener});
-        }
-    }
-}
+            const ready_fd = ready.data.fd;
+            if (ready_fd == listener_fd) {
+                var conn = try listener.accept();
+                errdefer conn.stream.close();
+                var client_ev = linux.epoll_event{ .events = linux.EPOLL.IN, .data = .{ .fd = conn.stream.handle }};
+                try posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, conn.stream.handle, &client_ev);
 
-fn handleConnection(epfd: i32, event: linux.epoll_event, allocator: std.mem.Allocator, listener: *net.Server) void {
-    switch(event.data.ptr){
-        0 => {
-            const conn = listener.accept() catch {
-                std.debug.print("Error connection\n", .{});
-                std.process.exit(1);
-            };
-            errdefer conn.stream.close();
+            }else {
+                var closed = false;
+                var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+                defer arena.deinit();
+                var a_allocator = arena.allocator();
 
-            const client = allocator.create(Client) catch {
-                std.debug.print("Failed allocation", .{});
-                std.process.exit(1);
-            };
-            errdefer allocator.destroy(client);
+                const request = try a_allocator.alloc(u8, 1024);
 
-            client.* = .{.socket = conn.stream.handle};
+                const read = posix.read(ready_fd, request) catch 0;
+                if (read == 0) {
+                    closed = true;
+                }
+                else {
+                    var httpRequest = HttpRequest.init(&a_allocator);
+                    try httpRequest.parseRequest(request);
 
-            var client_ev = linux.epoll_event{ .events = linux.EPOLL.IN | linux.EPOLL.ET, .data = .{ .ptr  = @intFromPtr(client) }};
-            posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, conn.stream.handle, &client_ev) catch handleError(client);
-        },
-        else => |ptr| {
-            var closed = false;
+                    var handler: RouteHandler = undefined;
+                    handler = RouteHandler.getHandler(&httpRequest, &a_allocator, ready_fd);
 
-            const client: *Client = @ptrFromInt(ptr);
+                    try handler.handle(&httpRequest);
+                }
 
-            const request = allocator.alloc(u8, 1024) catch {
-                std.debug.print("Failed allocation", .{});
-                std.process.exit(1);
-            };
+                if (closed or ready.events & linux.EPOLL.RDHUP == linux.EPOLL.RDHUP) {
+                    posix.close(ready_fd);
+                }
 
-            const read = posix.read(client.socket, request) catch 0;
-            if (read == 0) {
-                closed = true;
-            }
-            else {
-                var httpRequest = HttpRequest.init(allocator);
-                defer httpRequest.deinit();
-                httpRequest.parseRequest(request) catch handleError(client);
-
-                var handler: RouteHandler = undefined;
-                handler = RouteHandler.getHandler(&httpRequest, allocator, client.socket);
-
-                handler.handle(&httpRequest) catch handleError(client);
-            }
-
-            if (closed or (event.events & linux.EPOLL.RDHUP) == linux.EPOLL.RDHUP) {
-                posix.close(client.socket);
             }
 
         }
     }
 }
 
-fn handleError(client: *Client) void {
-    _ = posix.write(client.socket, "HTTP/1.1 500 Internal Server Error\r\n\r\n") catch return;
-}

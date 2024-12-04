@@ -6,14 +6,14 @@ pub const HttpRequest = struct {
     protocol_version: []const u8,
     headers: std.StringHashMap([]const u8),
     body: ?[]const u8,
-    allocator: std.mem.Allocator,
+    allocator: *std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator) HttpRequest {
+    pub fn init(allocator: *std.mem.Allocator) HttpRequest {
         return .{
             .method = undefined,
             .route = undefined,
             .protocol_version = undefined,
-            .headers = std.StringHashMap([]const u8).init(allocator),
+            .headers = std.StringHashMap([]const u8).init(allocator.*),
             .body = undefined,
             .allocator = allocator,
         };
@@ -23,7 +23,7 @@ pub const HttpRequest = struct {
         var it_request = std.mem.splitSequence(u8, request, "\r\n");
         const request_line = it_request.next().?;
 
-        var it_request_line = std.mem.splitScalar(u8, request_line,' ');
+        var it_request_line = std.mem.splitScalar(u8, request_line, ' ');
 
         self.method = it_request_line.next().?;
         self.route = it_request_line.next().?;
@@ -48,9 +48,5 @@ pub const HttpRequest = struct {
 
             _ = try self.headers.put(trimmed_key, trimmed_value);
         }
-    }
-
-    pub fn deinit(self: *HttpRequest) void {
-        self.headers.deinit();
     }
 };

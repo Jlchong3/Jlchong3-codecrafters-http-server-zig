@@ -14,65 +14,73 @@ fn send_response(allocator: *std.mem.Allocator, fd: i32,
 }
 
 const RootHandler = struct {
+    const Self = @This();
+
     route: []const u8 = "/",
     allocator: *std.mem.Allocator,
     fd: i32,
 
     const handlerRoute = "/";
 
-    pub fn handle(self: RootHandler, request: *HttpRequest) !void {
+    pub fn handle(self: Self, request: *HttpRequest) !void {
         _ = request;
         try send_response(self.allocator, self.fd, ok, null, null);
     }
 
-    pub fn matches(self: RootHandler, request: *HttpRequest) bool {
+    pub fn matches(self: Self, request: *HttpRequest) bool {
         return std.mem.eql(u8, request.route, self.route);
     }
 };
 
 const EchoHandler = struct {
+    const Self = @This();
+
     route: []const u8 = "/echo",
     allocator: *std.mem.Allocator,
     fd: i32,
 
-    pub fn handle(self: EchoHandler, request: *HttpRequest) !void {
+    pub fn handle(self: Self, request: *HttpRequest) !void {
         const response_body = request.route[6..];
         const header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\n", .{response_body.len});
         try send_response(self.allocator, self.fd, ok, header, response_body);
     }
 
-    pub fn matches(self: EchoHandler, request: *HttpRequest) bool {
+    pub fn matches(self: Self, request: *HttpRequest) bool {
         return std.mem.startsWith(u8, request.route, self.route);
     }
 };
 
 const UserAgentHandler = struct {
+    const Self = @This();
+
     route: []const u8 = "/user-agent",
     allocator: *std.mem.Allocator,
     fd: i32,
 
 
-    pub fn handle(self: UserAgentHandler, request: *HttpRequest) !void {
+    pub fn handle(self: Self, request: *HttpRequest) !void {
         const body = request.headers.get("User-Agent").?;
         const header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\n", .{body.len});
         try send_response(self.allocator, self.fd, ok, header, body);
     }
 
-    pub fn matches(self: UserAgentHandler, request: *HttpRequest) bool {
+    pub fn matches(self: Self, request: *HttpRequest) bool {
         return std.mem.startsWith(u8, request.route, self.route);
     }
 };
 
 const NotFoundHandler= struct {
+    const Self = @This();
+
     route: []const u8 = undefined,
     allocator: *std.mem.Allocator,
     fd: i32,
 
-    pub fn handle(self: NotFoundHandler, request: *HttpRequest) !void{
+    pub fn handle(self: Self, request: *HttpRequest) !void{
         _ = request;
         try send_response(self.allocator, self.fd, notFound, null, null);
     }
-    fn matches(self: NotFoundHandler, request: *HttpRequest) bool {
+    fn matches(self: Self, request: *HttpRequest) bool {
         _ = self;
         _ = request;
         return false;
@@ -80,24 +88,26 @@ const NotFoundHandler= struct {
 };
 
 pub const RouteHandler = union(enum) {
+    const Self = @This();
+
     root: RootHandler,
     echo: EchoHandler,
     userAgent: UserAgentHandler,
     notFound: NotFoundHandler,
 
-    pub fn handle(self: RouteHandler, request: *HttpRequest) !void {
+    pub fn handle(self: Self, request: *HttpRequest) !void {
         switch (self) {
             inline else => |h| try h.handle(request),
         }
     }
 
-    pub fn matches(self: RouteHandler, request: *HttpRequest) bool {
+    pub fn matches(self: Self, request: *HttpRequest) bool {
         switch (self) {
             inline else => |h| return h.matches(request),
         }
     }
 
-    pub fn getHandler(request: *HttpRequest, allocator: *std.mem.Allocator, fd: i32 ) RouteHandler {
+    pub fn getHandler(request: *HttpRequest, allocator: *std.mem.Allocator, fd: i32 ) Self {
         const handlers = [_]RouteHandler{
             RouteHandler{ .root = RootHandler{ .allocator = allocator, .fd = fd } },
             RouteHandler{ .echo = EchoHandler{ .allocator = allocator, .fd = fd } },

@@ -7,7 +7,6 @@ const RouteHandler = @import("handlers.zig").RouteHandler;
 
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
-
     try stdout.print("Logs from your program will appear here!\n", .{});
 
     const address = try net.Address.resolveIp("127.0.0.1", 4221);
@@ -15,6 +14,7 @@ pub fn main() !void {
     var listener = try address.listen(.{
         .reuse_address = true,
         .force_nonblocking = true,
+        .reuse_port = true,
     });
     defer listener.deinit();
 
@@ -26,50 +26,76 @@ pub fn main() !void {
     };
     defer posix.close(epfd);
 
-    var ev = linux.epoll_event{ .events = linux.EPOLL.IN, .data = .{ .fd = listener_fd }};
+    var ev = linux.epoll_event{ .events = linux.EPOLL.IN | linux.EPOLL.ET, .data = .{ .fd = listener_fd }};
     try posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, listener_fd, &ev);
 
-    var ready_list: [128]linux.epoll_event = undefined;
+    const page_allocator = std.heap.page_allocator;
+    const allocator: std.heap.ThreadSafeAllocator = .{ .child_allocator = page_allocator };
+    var pool: std.Thread.Pool = undefined;
+    try pool.init(std.Thread.Pool.Options{
+        .allocator = allocator.child_allocator,
+        .n_jobs = 4,
+    });
+    defer pool.deinit();
 
-    while(true){
+    try pool.spawn(handleConnection, .{epfd, &listener});
+
+    handleConnection(epfd, &listener);
+}
+
+// Worker function that processes events from epoll
+fn handleConnection(epfd: i32, listener: *net.Server) void {
+    var ready_list: [64]linux.epoll_event = undefined;
+
+    while (true) {
         const ready_count = posix.epoll_wait(epfd, &ready_list, -1);
-        for(ready_list[0..ready_count]) |ready| {
-            const ready_fd = ready.data.fd;
-            if (ready_fd == listener_fd) {
-                var conn = try listener.accept();
-                errdefer conn.stream.close();
-                var client_ev = linux.epoll_event{ .events = linux.EPOLL.IN, .data = .{ .fd = conn.stream.handle }};
-                try posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, conn.stream.handle, &client_ev);
+        if (ready_count <= 0) {
+            std.debug.print("Error in epoll_wait\n", .{});
+            continue;
+        }
 
-            }else {
-                var closed = false;
+        for (ready_list[0..ready_count]) |ready| {
+            const ready_fd = ready.data.fd;
+            if (ready_fd == listener.stream.handle) {
+                while(true){
+                    const conn = listener.accept() catch {
+                        break;
+                    };
+
+                    var client_ev = linux.epoll_event{ .events = linux.EPOLL.IN | linux.EPOLL.ET | linux.EPOLL.ONESHOT, .data = .{ .fd = conn.stream.handle }};
+                    posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, conn.stream.handle, &client_ev) catch {
+                        std.debug.print("Failed registering\n", .{});
+                    };
+                }
+            } else {
                 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
                 defer arena.deinit();
                 var a_allocator = arena.allocator();
 
-                const request = try a_allocator.alloc(u8, 1024);
-
+                const request = a_allocator.alloc(u8, 1024) catch {
+                    std.debug.print("Not enough memory\n", .{});
+                    return;
+                };
                 const read = posix.read(ready_fd, request) catch 0;
                 if (read == 0) {
-                    closed = true;
-                }
-                else {
-                    var httpRequest = HttpRequest.init(&a_allocator);
-                    try httpRequest.parseRequest(request);
-
-                    var handler: RouteHandler = undefined;
-                    handler = RouteHandler.getHandler(&httpRequest, &a_allocator, ready_fd);
-
-                    try handler.handle(&httpRequest);
+                    posix.close(ready_fd);
+                    return;
                 }
 
-                if (closed or ready.events & linux.EPOLL.RDHUP == linux.EPOLL.RDHUP) {
+                var httpRequest = HttpRequest.init(&a_allocator);
+                httpRequest.parseRequest(request) catch {
+                    std.debug.print("Failed Parsing\n", .{});
+                };
+
+                var handler = RouteHandler.getHandler(&httpRequest, &a_allocator, ready_fd);
+                handler.handle(&httpRequest) catch {
+                    std.debug.print("Failed Handle\n", .{});
+                };
+
+                if (read == 0 or ready.events & linux.EPOLL.RDHUP == linux.EPOLL.RDHUP) {
                     posix.close(ready_fd);
                 }
-
             }
-
         }
     }
 }
-

@@ -1,6 +1,8 @@
 const std = @import("std");
 
 pub const HttpRequest = struct {
+    const Self = @This();
+
     method: []const u8,
     route: []const u8,
     protocol_version: []const u8,
@@ -19,7 +21,7 @@ pub const HttpRequest = struct {
         };
     }
 
-    pub fn parseRequest(self: *HttpRequest, request: []const u8) !void {
+    pub fn parseRequest(self: *Self, request: []const u8) !void {
         var it_request = std.mem.splitSequence(u8, request, "\r\n");
         const request_line = it_request.next().?;
 
@@ -35,7 +37,7 @@ pub const HttpRequest = struct {
         self.body = it_request.next();
     }
 
-    fn parseHeaders(self: *HttpRequest, it: *std.mem.SplitIterator(u8, std.mem.DelimiterType.sequence)) !void {
+    fn parseHeaders(self: *Self, it: *std.mem.SplitIterator(u8, std.mem.DelimiterType.sequence)) !void {
         while(!std.mem.eql(u8, it.peek().?, "")){
             var line = it.next().?;
             const colon_pos = std.mem.indexOf(u8, line, ":") orelse continue;
@@ -48,5 +50,9 @@ pub const HttpRequest = struct {
 
             _ = try self.headers.put(trimmed_key, trimmed_value);
         }
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.headers.deinit();
     }
 };

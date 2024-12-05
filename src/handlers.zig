@@ -10,6 +10,7 @@ fn send_response(allocator: *std.mem.Allocator, fd: i32,
                 status: []const u8, headers: ?[]const u8, body: ?[]const u8) !void{
 
     const response = try std.fmt.allocPrint(allocator.*, "{s}\r\n{s}\r\n{s}", .{status, headers orelse "", body orelse ""});
+    defer allocator.free(response);
     _ = try posix.write(fd, response);
 }
 
@@ -20,8 +21,6 @@ const RootHandler = struct {
     allocator: *std.mem.Allocator,
     fd: i32,
 
-    const handlerRoute = "/";
-
     pub fn handle(self: Self, request: *HttpRequest) !void {
         _ = request;
         try send_response(self.allocator, self.fd, ok, null, null);
@@ -29,6 +28,47 @@ const RootHandler = struct {
 
     pub fn matches(self: Self, request: *HttpRequest) bool {
         return std.mem.eql(u8, request.route, self.route);
+    }
+};
+
+const FileHandler = struct {
+    const Self = @This();
+
+    route: []const u8 = "/files",
+    allocator: *std.mem.Allocator,
+    fd: i32,
+
+    pub fn handle(self: Self, request: *HttpRequest) !void {
+        const filename = request.route[7..];
+        var args = try std.process.argsWithAllocator(self.allocator.*);
+        defer args.deinit();
+        var dirname: []u8 = undefined;
+        while (args.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--directory")) {
+                dirname = @constCast(std.mem.trimRight(u8, args.next().?, "/"));
+                break;
+            }
+        } else {
+            _ = try posix.write(self.fd, "HTTP/1.1 404 Not Found\r\n\r\n");
+            return;
+        }
+        const path = try std.fmt.allocPrint(self.allocator.*, "{s}/{s}", .{dirname, filename});
+        std.debug.print("{s}\n", .{path});
+        defer self.allocator.free(path);
+        var file = std.fs.cwd().openFile(path, .{}) catch {
+            _ = try posix.write(self.fd, "HTTP/1.1 404 Not Found\r\n\r\n");
+            return;
+        };
+        const stat = try file.stat();
+        const headers = try std.fmt.allocPrint(self.allocator.*, "Content-Type: application/octet-stream\r\nContent-Length:{d}\r\n", .{stat.size});
+        defer self.allocator.free(headers);
+        const buffer = try self.allocator.alloc(u8, stat.size);
+        _ = try file.readAll(buffer);
+        try send_response(self.allocator, self.fd, ok, headers, buffer);
+    }
+
+    pub fn matches(self: Self, request: *HttpRequest) bool {
+        return std.mem.startsWith(u8, request.route, self.route);
     }
 };
 
@@ -69,7 +109,7 @@ const UserAgentHandler = struct {
     }
 };
 
-const NotFoundHandler= struct {
+const RouteNotFoundHandler= struct {
     const Self = @This();
 
     route: []const u8 = undefined,
@@ -93,7 +133,8 @@ pub const RouteHandler = union(enum) {
     root: RootHandler,
     echo: EchoHandler,
     userAgent: UserAgentHandler,
-    notFound: NotFoundHandler,
+    file: FileHandler,
+    notFound: RouteNotFoundHandler,
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
         switch (self) {
@@ -112,6 +153,7 @@ pub const RouteHandler = union(enum) {
             RouteHandler{ .root = RootHandler{ .allocator = allocator, .fd = fd } },
             RouteHandler{ .echo = EchoHandler{ .allocator = allocator, .fd = fd } },
             RouteHandler{ .userAgent = UserAgentHandler{ .allocator = allocator, .fd = fd } },
+            RouteHandler{ .file = FileHandler{ .allocator = allocator, .fd = fd } },
         };
 
         for (handlers) |h| {
@@ -120,6 +162,6 @@ pub const RouteHandler = union(enum) {
             }
         }
 
-        return RouteHandler{ .notFound = NotFoundHandler{ .allocator = allocator, .fd = fd }};
+        return RouteHandler{ .notFound = RouteNotFoundHandler{ .allocator = allocator, .fd = fd }};
     }
 };

@@ -43,7 +43,6 @@ pub fn main() !void {
     handleConnection(epfd, &listener);
 }
 
-// Worker function that processes events from epoll
 fn handleConnection(epfd: i32, listener: *net.Server) void {
     var ready_list: [64]linux.epoll_event = undefined;
 

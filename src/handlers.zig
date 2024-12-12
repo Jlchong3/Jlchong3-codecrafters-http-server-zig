@@ -74,6 +74,7 @@ const FileHandler = struct {
             _ = try posix.write(self.fd, notFound);
             return;
         };
+        defer file.close();
         const stat = try file.stat();
         const headers = try std.fmt.allocPrint(self.allocator.*, "Content-Type: application/octet-stream\r\nContent-Length:{d}\r\n", .{stat.size});
         defer self.allocator.free(headers);
@@ -96,8 +97,10 @@ const FileHandler = struct {
             return;
         }
         const dir = try std.fs.openDirAbsolute(dirname, .{});
+        defer dir.close();
         const filename = request.route[7..];
         var file = try dir.createFile(filename, .{});
+        defer file.close();
 
         _ = try file.write(request.body orelse "");
         try send_response(self.allocator, self.fd, created, null, null);

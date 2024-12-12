@@ -10,7 +10,7 @@ pub const Method = enum {
 };
 
 fn getEnumFieldFromString(comptime T: type, str: []const u8) ?T {
-    inline for (@typeInfo(T).@"enum".fields) |enumField| {
+    inline for (@typeInfo(T).Enum.fields) |enumField| {
         if (std.mem.eql(u8, str, enumField.name)) {
             return @field(T, enumField.name);
         }

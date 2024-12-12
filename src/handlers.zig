@@ -2,9 +2,11 @@ const std = @import("std");
 const net = std.net;
 const posix = std.posix;
 const HttpRequest = @import("http_request.zig").HttpRequest;
+const Method = @import("http_request.zig").Method;
 
 const ok = "HTTP/1.1 200 OK";
 const notFound = "HTTP/1.1 404 Not Found";
+const created = "HTTP/1.1 201 Created";
 
 fn send_response(allocator: *std.mem.Allocator, fd: i32,
                 status: []const u8, headers: ?[]const u8, body: ?[]const u8) !void{
@@ -39,6 +41,20 @@ const FileHandler = struct {
     fd: i32,
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
+        switch (request.method){
+            .GET => {
+                try getMethodHandler(self, request);
+            },
+            .POST => {
+                try postMethodHandler(self, request);
+            },
+            else => {
+                _ = try posix.write(self.fd, notFound);
+            }
+        }
+    }
+
+    fn getMethodHandler(self: Self, request: *HttpRequest) !void {
         const filename = request.route[7..];
         var args = try std.process.argsWithAllocator(self.allocator.*);
         defer args.deinit();
@@ -49,14 +65,13 @@ const FileHandler = struct {
                 break;
             }
         } else {
-            _ = try posix.write(self.fd, "HTTP/1.1 404 Not Found\r\n\r\n");
+            _ = try posix.write(self.fd, notFound);
             return;
         }
         const path = try std.fmt.allocPrint(self.allocator.*, "{s}/{s}", .{dirname, filename});
-        std.debug.print("{s}\n", .{path});
         defer self.allocator.free(path);
         var file = std.fs.cwd().openFile(path, .{}) catch {
-            _ = try posix.write(self.fd, "HTTP/1.1 404 Not Found\r\n\r\n");
+            _ = try posix.write(self.fd, notFound);
             return;
         };
         const stat = try file.stat();
@@ -65,6 +80,27 @@ const FileHandler = struct {
         const buffer = try self.allocator.alloc(u8, stat.size);
         _ = try file.readAll(buffer);
         try send_response(self.allocator, self.fd, ok, headers, buffer);
+    }
+
+    fn postMethodHandler(self: Self, request: *HttpRequest) !void {
+        var args = try std.process.argsWithAllocator(self.allocator.*);
+        defer args.deinit();
+        var dirname: []u8 = undefined;
+        while (args.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--directory")) {
+                dirname = @constCast(std.mem.trimRight(u8, args.next().?, "/"));
+                break;
+            }
+        } else {
+            _ = try posix.write(self.fd, notFound);
+            return;
+        }
+        const dir = try std.fs.openDirAbsolute(dirname, .{});
+        const filename = request.route[7..];
+        var file = try dir.createFile(filename, .{});
+
+        _ = try file.write(request.body orelse "");
+        try send_response(self.allocator, self.fd, created, null, null);
     }
 
     pub fn matches(self: Self, request: *HttpRequest) bool {

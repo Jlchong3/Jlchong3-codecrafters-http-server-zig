@@ -1,16 +1,34 @@
 const std = @import("std");
+const mem = std.mem;
+
+pub const Method = enum {
+    GET,
+    POST,
+    DELETE,
+    PUT,
+    PATCH,
+};
+
+fn getEnumFieldFromString(comptime T: type, str: []const u8) ?T {
+    inline for (@typeInfo(T).@"enum".fields) |enumField| {
+        if (std.mem.eql(u8, str, enumField.name)) {
+            return @field(T, enumField.name);
+        }
+    }
+    return null;
+}
 
 pub const HttpRequest = struct {
     const Self = @This();
 
-    method: []const u8,
+    method: Method,
     route: []const u8,
     protocol_version: []const u8,
     headers: std.StringHashMap([]const u8),
     body: ?[]const u8,
-    allocator: *std.mem.Allocator,
+    allocator: *mem.Allocator,
 
-    pub fn init(allocator: *std.mem.Allocator) HttpRequest {
+    pub fn init(allocator: *mem.Allocator) HttpRequest {
         return .{
             .method = undefined,
             .route = undefined,
@@ -22,12 +40,12 @@ pub const HttpRequest = struct {
     }
 
     pub fn parseRequest(self: *Self, request: []const u8) !void {
-        var it_request = std.mem.splitSequence(u8, request, "\r\n");
+        var it_request = mem.splitSequence(u8, request, "\r\n");
         const request_line = it_request.next().?;
 
-        var it_request_line = std.mem.splitScalar(u8, request_line, ' ');
+        var it_request_line = mem.splitScalar(u8, request_line, ' ');
 
-        self.method = it_request_line.next().?;
+        self.method = getEnumFieldFromString(Method, it_request_line.next().?) orelse return error.BadMethod;
         self.route = it_request_line.next().?;
         self.protocol_version = it_request_line.next().?;
 
@@ -37,16 +55,16 @@ pub const HttpRequest = struct {
         self.body = it_request.next();
     }
 
-    fn parseHeaders(self: *Self, it: *std.mem.SplitIterator(u8, std.mem.DelimiterType.sequence)) !void {
-        while(!std.mem.eql(u8, it.peek().?, "")){
+    fn parseHeaders(self: *Self, it: *mem.SplitIterator(u8, mem.DelimiterType.sequence)) !void {
+        while(!mem.eql(u8, it.peek().?, "")){
             var line = it.next().?;
-            const colon_pos = std.mem.indexOf(u8, line, ":") orelse continue;
+            const colon_pos = mem.indexOf(u8, line, ":") orelse continue;
 
             const key = line[0..colon_pos];
             const value = line[colon_pos + 1..];
 
-            const trimmed_key = std.mem.trim(u8, key, " ");
-            const trimmed_value = std.mem.trim(u8, value, " ");
+            const trimmed_key = mem.trim(u8, key, " ");
+            const trimmed_value = mem.trim(u8, value, " ");
 
             _ = try self.headers.put(trimmed_key, trimmed_value);
         }

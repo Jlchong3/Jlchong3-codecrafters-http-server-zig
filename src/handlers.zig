@@ -102,7 +102,8 @@ const FileHandler = struct {
         var file = try dir.createFile(filename, .{});
         defer file.close();
 
-        _ = try file.write(request.body orelse "");
+        const size = request.headers.get("Content-Length");
+        _ = try file.write(request.body[0..size] orelse "");
         try send_response(self.allocator, self.fd, created, null, null);
     }
 

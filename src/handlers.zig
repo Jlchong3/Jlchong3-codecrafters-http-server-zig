@@ -49,7 +49,7 @@ const FileHandler = struct {
                 try postMethodHandler(self, request);
             },
             else => {
-                _ = try posix.write(self.fd, notFound);
+                try send_response(self.allocator, self.fd, notFound, null, null);
             }
         }
     }
@@ -65,13 +65,13 @@ const FileHandler = struct {
                 break;
             }
         } else {
-            _ = try posix.write(self.fd, notFound);
+            try send_response(self.allocator, self.fd, notFound, null, null);
             return;
         }
         const path = try std.fmt.allocPrint(self.allocator.*, "{s}/{s}", .{dirname, filename});
         defer self.allocator.free(path);
         var file = std.fs.cwd().openFile(path, .{}) catch {
-            _ = try posix.write(self.fd, notFound);
+            try send_response(self.allocator, self.fd, notFound, null, null);
             return;
         };
         defer file.close();
@@ -93,7 +93,7 @@ const FileHandler = struct {
                 break;
             }
         } else {
-            _ = try posix.write(self.fd, notFound);
+            try send_response(self.allocator, self.fd, notFound, null, null);
             return;
         }
         var dir = try std.fs.openDirAbsolute(dirname, .{});

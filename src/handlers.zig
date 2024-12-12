@@ -102,8 +102,16 @@ const FileHandler = struct {
         var file = try dir.createFile(filename, .{});
         defer file.close();
 
-        const size = request.headers.get("Content-Length");
-        _ = try file.write(request.body[0..size] orelse "");
+        const size = try std.fmt.parseInt(usize, request.headers.get("Content-Length").?, 10);
+
+        var content: []const u8 = undefined;
+        if(request.body) |b| {
+            content = b[0..size];
+        } else {
+            content = "";
+        }
+
+        _ = try file.write(content);
         try send_response(self.allocator, self.fd, created, null, null);
     }
 

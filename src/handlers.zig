@@ -96,7 +96,7 @@ const FileHandler = struct {
             _ = try posix.write(self.fd, notFound);
             return;
         }
-        const dir = try std.fs.openDirAbsolute(dirname, .{});
+        var dir = try std.fs.openDirAbsolute(dirname, .{});
         defer dir.close();
         const filename = request.route[7..];
         var file = try dir.createFile(filename, .{});

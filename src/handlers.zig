@@ -1,6 +1,7 @@
 const std = @import("std");
 const net = std.net;
 const posix = std.posix;
+const mem = std.mem;
 const HttpRequest = @import("http_request.zig").HttpRequest;
 const Method = @import("http_request.zig").Method;
 
@@ -8,7 +9,7 @@ const ok = "HTTP/1.1 200 OK";
 const notFound = "HTTP/1.1 404 Not Found";
 const created = "HTTP/1.1 201 Created";
 
-fn send_response(allocator: *std.mem.Allocator, fd: i32,
+fn send_response(allocator: *mem.Allocator, fd: i32,
                 status: []const u8, headers: ?[]const u8, body: ?[]const u8) !void{
 
     const response = try std.fmt.allocPrint(allocator.*, "{s}\r\n{s}\r\n{s}", .{status, headers orelse "", body orelse ""});
@@ -20,7 +21,7 @@ const RootHandler = struct {
     const Self = @This();
 
     route: []const u8 = "/",
-    allocator: *std.mem.Allocator,
+    allocator: *mem.Allocator,
     fd: i32,
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
@@ -29,7 +30,7 @@ const RootHandler = struct {
     }
 
     pub fn matches(self: Self, request: *HttpRequest) bool {
-        return std.mem.eql(u8, request.route, self.route);
+        return mem.eql(u8, request.route, self.route);
     }
 };
 
@@ -37,7 +38,7 @@ const FileHandler = struct {
     const Self = @This();
 
     route: []const u8 = "/files",
-    allocator: *std.mem.Allocator,
+    allocator: *mem.Allocator,
     fd: i32,
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
@@ -60,8 +61,8 @@ const FileHandler = struct {
         defer args.deinit();
         var dirname: []u8 = undefined;
         while (args.next()) |arg| {
-            if (std.mem.eql(u8, arg, "--directory")) {
-                dirname = @constCast(std.mem.trimRight(u8, args.next().?, "/"));
+            if (mem.eql(u8, arg, "--directory")) {
+                dirname = @constCast(mem.trimRight(u8, args.next().?, "/"));
                 break;
             }
         } else {
@@ -88,8 +89,8 @@ const FileHandler = struct {
         defer args.deinit();
         var dirname: []u8 = undefined;
         while (args.next()) |arg| {
-            if (std.mem.eql(u8, arg, "--directory")) {
-                dirname = @constCast(std.mem.trimRight(u8, args.next().?, "/"));
+            if (mem.eql(u8, arg, "--directory")) {
+                dirname = @constCast(mem.trimRight(u8, args.next().?, "/"));
                 break;
             }
         } else {
@@ -116,7 +117,7 @@ const FileHandler = struct {
     }
 
     pub fn matches(self: Self, request: *HttpRequest) bool {
-        return std.mem.startsWith(u8, request.route, self.route);
+        return mem.startsWith(u8, request.route, self.route);
     }
 };
 
@@ -124,17 +125,23 @@ const EchoHandler = struct {
     const Self = @This();
 
     route: []const u8 = "/echo",
-    allocator: *std.mem.Allocator,
+    allocator: *mem.Allocator,
     fd: i32,
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
         const response_body = request.route[6..];
-        const header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\n", .{response_body.len});
+        const header: []u8 = undefined;
+        defer self.allocator.free(header);
+        if(!mem.eql(u8, request.headers.get("Accept-Encoding"), "gzip")){
+            header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\n", .{response_body.len});
+        } else {
+            header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\nContent-Encoding:{s}\r\n", .{response_body.len, "gzip"});
+        }
         try send_response(self.allocator, self.fd, ok, header, response_body);
     }
 
     pub fn matches(self: Self, request: *HttpRequest) bool {
-        return std.mem.startsWith(u8, request.route, self.route);
+        return mem.startsWith(u8, request.route, self.route);
     }
 };
 
@@ -142,7 +149,7 @@ const UserAgentHandler = struct {
     const Self = @This();
 
     route: []const u8 = "/user-agent",
-    allocator: *std.mem.Allocator,
+    allocator: *mem.Allocator,
     fd: i32,
 
 
@@ -153,7 +160,7 @@ const UserAgentHandler = struct {
     }
 
     pub fn matches(self: Self, request: *HttpRequest) bool {
-        return std.mem.startsWith(u8, request.route, self.route);
+        return mem.startsWith(u8, request.route, self.route);
     }
 };
 
@@ -161,7 +168,7 @@ const RouteNotFoundHandler= struct {
     const Self = @This();
 
     route: []const u8 = undefined,
-    allocator: *std.mem.Allocator,
+    allocator: *mem.Allocator,
     fd: i32,
 
     pub fn handle(self: Self, request: *HttpRequest) !void{
@@ -196,7 +203,7 @@ pub const RouteHandler = union(enum) {
         }
     }
 
-    pub fn getHandler(request: *HttpRequest, allocator: *std.mem.Allocator, fd: i32 ) Self {
+    pub fn getHandler(request: *HttpRequest, allocator: *mem.Allocator, fd: i32 ) Self {
         const handlers = [_]RouteHandler{
             RouteHandler{ .root = RootHandler{ .allocator = allocator, .fd = fd } },
             RouteHandler{ .echo = EchoHandler{ .allocator = allocator, .fd = fd } },

@@ -130,13 +130,13 @@ const EchoHandler = struct {
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
         const response_body = request.route[6..];
-        const header: []u8 = undefined;
-        defer self.allocator.free(header);
-        if(!mem.eql(u8, request.headers.get("Accept-Encoding"), "gzip")){
+        var header: []u8 = undefined;
+        if(!mem.eql(u8, request.headers.get("Accept-Encoding") orelse "", "gzip")){
             header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\n", .{response_body.len});
         } else {
             header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\nContent-Encoding:{s}\r\n", .{response_body.len, "gzip"});
         }
+        defer self.allocator.free(header);
         try send_response(self.allocator, self.fd, ok, header, response_body);
     }
 

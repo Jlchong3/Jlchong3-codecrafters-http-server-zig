@@ -18,19 +18,30 @@ fn send_response(allocator: *mem.Allocator, fd: i32,
     _ = try posix.write(fd, response);
 }
 
-fn createHeader(allocator: *mem.Allocator, content_type: []const u8, content_len: usize, request: *HttpRequest) []u8 {
-    if(request.headers.get("Accept-Encoding") == null){
-        const header = try std.fmt.allocPrint(allocator.*, "Content-Type: {s}\r\nContent-Length:{d}\r\n", .{content_type, content_len});
-        return header;
-    }
+fn createHeader(allocator: *mem.Allocator, content_type: []const u8, content_len: usize, request: *HttpRequest) ![]u8 {
+    const encodings = request.headers.get("Accept-Encoding") orelse "";
+    var encodings_it = mem.splitScalar(u8, encodings, ',');
+    var response_enc: ?[]u8 = null;
 
-    const encodings = request.headers.get("Accept-Encoding");
-    for (allowed_encondings) |encoding| {
-        if(mem.containsAtLeast(u8, encodings, 1, encoding)){
-            const header = try std.fmt.allocPrint(allocator.*, "Content-Type: {s}\r\nContent-Length:{d}\r\nContent-Encoding\r\n", .{content_type, content_len, encoding});
-            return header;
+    response_enc = out: {
+        while(encodings_it.next()) |encoding| {
+            const sanitized_enc = mem.trim(u8, encoding, " \r\n");
+            for (allowed_encondings) |allowed_enc| {
+                if (mem.eql(u8, sanitized_enc, allowed_enc)){
+                    break :out @constCast(allowed_enc);
+                }
+            }
         }
+        break :out null;
+    };
+
+    var header: []u8 = undefined;
+    if (response_enc) |enc| {
+        header = try std.fmt.allocPrint(allocator.*, "Content-Type: {s}\r\nContent-Length: {d}\r\nContent-Encoding: {s}\r\n", .{content_type, content_len, enc});
+    } else {
+        header = try std.fmt.allocPrint(allocator.*, "Content-Type: {s}\r\nContent-Length: {d}\r\n", .{content_type, content_len});
     }
+    return header;
 }
 
 const RootHandler = struct {
@@ -146,7 +157,7 @@ const EchoHandler = struct {
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
         const response_body = request.route[6..];
-        const header = createHeader(self.allocator, "text/plain", response_body.len, request);
+        const header = try createHeader(self.allocator, "text/plain", response_body.len, request);
         defer self.allocator.free(header);
         try send_response(self.allocator, self.fd, ok, header, response_body);
     }

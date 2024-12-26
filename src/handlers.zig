@@ -8,6 +8,7 @@ const Method = @import("http_request.zig").Method;
 const ok = "HTTP/1.1 200 OK";
 const notFound = "HTTP/1.1 404 Not Found";
 const created = "HTTP/1.1 201 Created";
+const allowed_encondings = [_][]const u8{ "gzip", "zip" };
 
 fn send_response(allocator: *mem.Allocator, fd: i32,
                 status: []const u8, headers: ?[]const u8, body: ?[]const u8) !void{
@@ -15,6 +16,21 @@ fn send_response(allocator: *mem.Allocator, fd: i32,
     const response = try std.fmt.allocPrint(allocator.*, "{s}\r\n{s}\r\n{s}", .{status, headers orelse "", body orelse ""});
     defer allocator.free(response);
     _ = try posix.write(fd, response);
+}
+
+fn createHeader(allocator: *mem.Allocator, content_type: []const u8, content_len: usize, request: *HttpRequest) []u8 {
+    if(request.headers.get("Accept-Encoding") == null){
+        const header = try std.fmt.allocPrint(allocator.*, "Content-Type: {s}\r\nContent-Length:{d}\r\n", .{content_type, content_len});
+        return header;
+    }
+
+    const encodings = request.headers.get("Accept-Encoding");
+    for (allowed_encondings) |encoding| {
+        if(mem.containsAtLeast(u8, encodings, 1, encoding)){
+            const header = try std.fmt.allocPrint(allocator.*, "Content-Type: {s}\r\nContent-Length:{d}\r\nContent-Encoding\r\n", .{content_type, content_len, encoding});
+            return header;
+        }
+    }
 }
 
 const RootHandler = struct {
@@ -130,12 +146,7 @@ const EchoHandler = struct {
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
         const response_body = request.route[6..];
-        var header: []u8 = undefined;
-        if(!mem.eql(u8, request.headers.get("Accept-Encoding") orelse "", "gzip")){
-            header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\n", .{response_body.len});
-        } else {
-            header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\nContent-Encoding:{s}\r\n", .{response_body.len, "gzip"});
-        }
+        const header = createHeader(self.allocator, "text/plain", response_body.len, request);
         defer self.allocator.free(header);
         try send_response(self.allocator, self.fd, ok, header, response_body);
     }

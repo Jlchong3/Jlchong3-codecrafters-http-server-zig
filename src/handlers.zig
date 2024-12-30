@@ -8,7 +8,7 @@ const Method = @import("http_request.zig").Method;
 const ok = "HTTP/1.1 200 OK";
 const notFound = "HTTP/1.1 404 Not Found";
 const created = "HTTP/1.1 201 Created";
-const allowed_encondings = [_][]const u8{ "gzip", "zip" };
+const allowed_encondings = [_][]const u8{ "gzip" };
 
 fn send_response(allocator: *mem.Allocator, fd: i32,
                 status: []const u8, headers: ?[]const u8, body: ?[]const u8) !void{
@@ -164,10 +164,10 @@ const EchoHandler = struct {
         const text = request.route["/echo/".len..];
         var response_body_list = std.ArrayList(u8).init(self.allocator.*);
         const body_writer = response_body_list.writer();
-        var bufferStream = std.io.fixedBufferStream(text);
-        const reader = bufferStream.reader();
 
         if (get_allowed_enc(request)) |_| {
+            var bufferStream = std.io.fixedBufferStream(text);
+            const reader = bufferStream.reader();
             try std.compress.gzip.compress(reader, body_writer, .{});
         } else {
             _ = try body_writer.write(text);

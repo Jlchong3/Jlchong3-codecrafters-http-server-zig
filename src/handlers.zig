@@ -18,26 +18,30 @@ fn send_response(allocator: *mem.Allocator, fd: i32,
     _ = try posix.write(fd, response);
 }
 
-fn createHeader(allocator: *mem.Allocator, content_type: []const u8, content_len: usize, request: *HttpRequest) ![]u8 {
-    const encodings = request.headers.get("Accept-Encoding") orelse "";
+fn get_allowed_enc(request: *HttpRequest) ?[]u8{
+    const encodings = request.headers.get("Accept-Encoding") orelse return null;
     var encodings_it = mem.splitScalar(u8, encodings, ',');
-    var response_enc: ?[]u8 = null;
 
-    response_enc = out: {
-        while(encodings_it.next()) |encoding| {
-            const sanitized_enc = mem.trim(u8, encoding, " \r\n");
-            for (allowed_encondings) |allowed_enc| {
-                if (mem.eql(u8, sanitized_enc, allowed_enc)){
-                    break :out @constCast(allowed_enc);
-                }
+    while(encodings_it.next()) |encoding| {
+        const sanitized_enc = mem.trim(u8, encoding, " \r\n");
+        for (allowed_encondings) |allowed_enc| {
+            if (mem.eql(u8, sanitized_enc, allowed_enc)){
+                return @constCast(allowed_enc);
             }
         }
-        break :out null;
-    };
+    }
+
+    return null;
+
+}
+
+fn createHeader(allocator: *mem.Allocator, content_type: []const u8, content_len: usize, request: *HttpRequest) ![]u8 {
+    const response_enc = get_allowed_enc(request);
 
     var header: []u8 = undefined;
+
     if (response_enc) |enc| {
-        header = try std.fmt.allocPrint(allocator.*, "Content-Type: {s}\r\nContent-Length: {d}\r\nContent-Encoding: {s}\r\n", .{content_type, content_len, enc});
+        header = try std.fmt.allocPrint(allocator.*, "Content-Encoding: {s}\r\nContent-Type: {s}\r\nContent-Length: {d}\r\n", .{enc, content_type, content_len});
     } else {
         header = try std.fmt.allocPrint(allocator.*, "Content-Type: {s}\r\nContent-Length: {d}\r\n", .{content_type, content_len});
     }
@@ -104,8 +108,9 @@ const FileHandler = struct {
         };
         defer file.close();
         const stat = try file.stat();
-        const headers = try std.fmt.allocPrint(self.allocator.*, "Content-Type: application/octet-stream\r\nContent-Length:{d}\r\n", .{stat.size});
+        const headers = try createHeader(self.allocator, "application/octet-stream", stat.size, request);
         defer self.allocator.free(headers);
+
         const buffer = try self.allocator.alloc(u8, stat.size);
         _ = try file.readAll(buffer);
         try send_response(self.allocator, self.fd, ok, headers, buffer);
@@ -156,10 +161,24 @@ const EchoHandler = struct {
     fd: i32,
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
-        const response_body = request.route[6..];
-        const header = try createHeader(self.allocator, "text/plain", response_body.len, request);
-        defer self.allocator.free(header);
-        try send_response(self.allocator, self.fd, ok, header, response_body);
+        const text = request.route["/echo/".len..];
+        var response_body_list = std.ArrayList(u8).init(self.allocator.*);
+        const body_writer = response_body_list.writer();
+        var bufferStream = std.io.fixedBufferStream(text);
+        const reader = bufferStream.reader();
+
+        if (get_allowed_enc(request)) |_| {
+            try std.compress.gzip.compress(reader, body_writer, .{});
+        } else {
+            _ = try body_writer.write(text);
+        }
+
+        const response_body = try response_body_list.toOwnedSlice();
+        defer self.allocator.free(response_body);
+
+        const response_header = try createHeader(self.allocator, "text/plain", response_body.len, request);
+        defer self.allocator.free(response_header);
+        try send_response(self.allocator, self.fd, ok, response_header, response_body);
     }
 
     pub fn matches(self: Self, request: *HttpRequest) bool {
@@ -177,7 +196,7 @@ const UserAgentHandler = struct {
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
         const body = request.headers.get("User-Agent").?;
-        const header = try std.fmt.allocPrint(self.allocator.*, "Content-Type: text/plain\r\nContent-Length:{d}\r\n", .{body.len});
+        const header = try createHeader(self.allocator, "text/plain", body.len, request);
         try send_response(self.allocator, self.fd, ok, header, body);
     }
 

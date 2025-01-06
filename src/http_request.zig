@@ -26,14 +26,14 @@ pub const HttpRequest = struct {
     protocol_version: []const u8,
     headers: std.StringHashMap([]const u8),
     body: ?[]const u8,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
-    pub fn init(allocator: *mem.Allocator) HttpRequest {
+    pub fn init(allocator: mem.Allocator) HttpRequest {
         return .{
             .method = undefined,
             .route = undefined,
             .protocol_version = undefined,
-            .headers = std.StringHashMap([]const u8).init(allocator.*),
+            .headers = std.StringHashMap([]const u8).init(allocator),
             .body = undefined,
             .allocator = allocator,
         };

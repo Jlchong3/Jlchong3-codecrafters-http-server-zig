@@ -75,13 +75,14 @@ fn handleConnection(epfd: i32, listener: *net.Server) void {
                     std.debug.print("Not enough memory\n", .{});
                     return;
                 };
+                defer a_allocator.free(request);
                 const read = posix.read(ready_fd, request) catch 0;
                 if (read == 0) {
                     posix.close(ready_fd);
                     return;
                 }
 
-                var httpRequest = HttpRequest.init(&a_allocator);
+                var httpRequest = HttpRequest.init(a_allocator);
                 httpRequest.parseRequest(request) catch {
                     std.debug.print("Failed Parsing\n", .{});
                 };

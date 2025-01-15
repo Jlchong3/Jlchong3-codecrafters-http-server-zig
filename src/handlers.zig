@@ -183,7 +183,7 @@ const EchoHandler = struct {
 const UserAgentHandler = struct {
     const Self = @This();
 
-    route: []const u8 = "/user-agent/",
+    route: []const u8 = "/user-agent",
     allocator: *mem.Allocator,
     fd: i32,
 

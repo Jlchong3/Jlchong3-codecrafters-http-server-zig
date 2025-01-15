@@ -99,6 +99,9 @@ fn handleResquest(allocator: *std.mem.Allocator, ready_fd: i32) void {
         return;
     }
 
+    var bench = std.time.Timer.start() catch {
+        return;
+    };
     var httpRequest = HttpRequest.init(allocator.*);
     defer httpRequest.deinit();
 
@@ -112,4 +115,5 @@ fn handleResquest(allocator: *std.mem.Allocator, ready_fd: i32) void {
         std.debug.print("Failed Handle\n", .{});
         return;
     };
+    std.debug.print("{d} ns\n", .{bench.lap()});
 }

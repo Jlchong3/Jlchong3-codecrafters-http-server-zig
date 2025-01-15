@@ -62,7 +62,7 @@ const RootHandler = struct {
 const FileHandler = struct {
     const Self = @This();
 
-    route: []const u8 = "/files",
+    route: []const u8 = "/files/",
     allocator: *mem.Allocator,
     fd: i32,
 
@@ -81,7 +81,7 @@ const FileHandler = struct {
     }
 
     fn getMethodHandler(self: Self, request: *HttpRequest) !void {
-        const filename = request.route[7..];
+        const filename = request.route[self.route.len..];
         var args = try std.process.argsWithAllocator(self.allocator.*);
         defer args.deinit();
         var dirname: []u8 = undefined;
@@ -125,7 +125,7 @@ const FileHandler = struct {
         }
         var dir = try std.fs.openDirAbsolute(dirname, .{});
         defer dir.close();
-        const filename = request.route[7..];
+        const filename = request.route[self.route.len..];
         var file = try dir.createFile(filename, .{});
         defer file.close();
 
@@ -150,12 +150,12 @@ const FileHandler = struct {
 const EchoHandler = struct {
     const Self = @This();
 
-    route: []const u8 = "/echo",
+    route: []const u8 = "/echo/",
     allocator: *mem.Allocator,
     fd: i32,
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
-        const text = request.route["/echo/".len..];
+        const text = request.route[self.route.len..];
         var response_body_list = std.ArrayList(u8).init(self.allocator.*);
         const body_writer = response_body_list.writer();
 
@@ -183,7 +183,7 @@ const EchoHandler = struct {
 const UserAgentHandler = struct {
     const Self = @This();
 
-    route: []const u8 = "/user-agent",
+    route: []const u8 = "/user-agent/",
     allocator: *mem.Allocator,
     fd: i32,
 

@@ -56,46 +56,60 @@ fn handleConnection(epfd: i32, listener: *net.Server) void {
         for (ready_list[0..ready_count]) |ready| {
             const ready_fd = ready.data.fd;
             if (ready_fd == listener.stream.handle) {
-                while(true){
-                    const conn = listener.accept() catch {
-                        break;
-                    };
 
-                    var client_ev = linux.epoll_event{ .events = linux.EPOLL.IN | linux.EPOLL.ET | linux.EPOLL.ONESHOT, .data = .{ .fd = conn.stream.handle }};
-                    posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, conn.stream.handle, &client_ev) catch {
-                        std.debug.print("Failed registering\n", .{});
-                    };
-                }
+                epollAddListener(epfd, listener);
+
             } else {
                 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
                 defer arena.deinit();
                 var a_allocator = arena.allocator();
 
-                const request = a_allocator.alloc(u8, 1024) catch {
-                    std.debug.print("Not enough memory\n", .{});
-                    return;
-                };
-                defer a_allocator.free(request);
-                const read = posix.read(ready_fd, request) catch 0;
-                if (read == 0) {
-                    posix.close(ready_fd);
-                    return;
-                }
+                handleResquest(&a_allocator, ready_fd);
 
-                var httpRequest = HttpRequest.init(a_allocator);
-                httpRequest.parseRequest(request) catch {
-                    std.debug.print("Failed Parsing\n", .{});
-                };
-
-                var handler = RouteHandler.getHandler(&httpRequest, &a_allocator, ready_fd);
-                handler.handle(&httpRequest) catch {
-                    std.debug.print("Failed Handle\n", .{});
-                };
-
-                if (read == 0 or ready.events & linux.EPOLL.RDHUP == linux.EPOLL.RDHUP) {
+                if (ready.events & linux.EPOLL.RDHUP == linux.EPOLL.RDHUP) {
                     posix.close(ready_fd);
                 }
             }
         }
     }
+}
+
+fn epollAddListener(epfd: i32, listener: *net.Server) void {
+    while(true){
+        const conn = listener.accept() catch {
+            break;
+        };
+
+        var client_ev = linux.epoll_event{ .events = linux.EPOLL.IN | linux.EPOLL.ET | linux.EPOLL.ONESHOT, .data = .{ .fd = conn.stream.handle }};
+        posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, conn.stream.handle, &client_ev) catch {
+            std.debug.print("Failed registering\n", .{});
+        };
+    }
+}
+
+fn handleResquest(allocator: *std.mem.Allocator, ready_fd: i32) void {
+    const request = allocator.alloc(u8, 1024) catch {
+        std.debug.print("Not enough memory\n", .{});
+        return;
+    };
+    defer allocator.free(request);
+    const read = posix.read(ready_fd, request) catch 0;
+    if (read == 0) {
+        posix.close(ready_fd);
+        return;
+    }
+
+    var httpRequest = HttpRequest.init(allocator.*);
+    defer httpRequest.deinit();
+
+    httpRequest.parseRequest(request) catch {
+        std.debug.print("Failed Parsing\n", .{});
+        return;
+    };
+
+    var handler = RouteHandler.getHandler(&httpRequest, allocator, ready_fd);
+    handler.handle(&httpRequest) catch {
+        std.debug.print("Failed Handle\n", .{});
+        return;
+    };
 }

@@ -26,7 +26,6 @@ pub const HttpRequest = struct {
     protocol_version: []const u8,
     headers: std.StringHashMap([]const u8),
     body: ?[]const u8,
-    allocator: mem.Allocator,
 
     pub fn init(allocator: mem.Allocator) HttpRequest {
         return .{
@@ -35,7 +34,6 @@ pub const HttpRequest = struct {
             .protocol_version = undefined,
             .headers = std.StringHashMap([]const u8).init(allocator),
             .body = undefined,
-            .allocator = allocator,
         };
     }
 
@@ -51,7 +49,6 @@ pub const HttpRequest = struct {
 
         try self.parseHeaders(&it_request);
 
-        _ = it_request.next();
         self.body = it_request.next();
     }
 
@@ -68,6 +65,7 @@ pub const HttpRequest = struct {
 
             _ = try self.headers.put(trimmed_key, trimmed_value);
         }
+        _ = it.next();
     }
 
     pub fn deinit(self: *Self) void {

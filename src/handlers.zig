@@ -4,10 +4,8 @@ const posix = std.posix;
 const mem = std.mem;
 const HttpRequest = @import("http_request.zig").HttpRequest;
 const Method = @import("http_request.zig").Method;
+const response_status = @import("status.zig");
 
-const ok = "HTTP/1.1 200 OK";
-const notFound = "HTTP/1.1 404 Not Found";
-const created = "HTTP/1.1 201 Created";
 const allowed_encondings = [_][]const u8{ "gzip" };
 
 fn send_response(allocator: *mem.Allocator, fd: i32,
@@ -30,16 +28,12 @@ fn get_allowed_enc(request: *HttpRequest) ?[]u8{
             }
         }
     }
-
     return null;
-
 }
 
 fn createHeader(allocator: *mem.Allocator, content_type: []const u8, content_len: usize, request: *HttpRequest) ![]u8 {
     const response_enc = get_allowed_enc(request);
-
     var header: []u8 = undefined;
-
     if (response_enc) |enc| {
         header = try std.fmt.allocPrint(allocator.*, "Content-Encoding: {s}\r\nContent-Type: {s}\r\nContent-Length: {d}\r\n", .{enc, content_type, content_len});
     } else {
@@ -57,7 +51,7 @@ const RootHandler = struct {
 
     pub fn handle(self: Self, request: *HttpRequest) !void {
         _ = request;
-        try send_response(self.allocator, self.fd, ok, null, null);
+        try send_response(self.allocator, self.fd, response_status.OK, null, null);
     }
 
     pub fn matches(self: Self, request: *HttpRequest) bool {
@@ -81,7 +75,7 @@ const FileHandler = struct {
                 try postMethodHandler(self, request);
             },
             else => {
-                try send_response(self.allocator, self.fd, notFound, null, null);
+                try send_response(self.allocator, self.fd, response_status.NOTFOUND, null, null);
             }
         }
     }
@@ -97,13 +91,13 @@ const FileHandler = struct {
                 break;
             }
         } else {
-            try send_response(self.allocator, self.fd, notFound, null, null);
+            try send_response(self.allocator, self.fd, response_status.NOTFOUND, null, null);
             return;
         }
         const path = try std.fmt.allocPrint(self.allocator.*, "{s}/{s}", .{dirname, filename});
         defer self.allocator.free(path);
         var file = std.fs.cwd().openFile(path, .{}) catch {
-            try send_response(self.allocator, self.fd, notFound, null, null);
+            try send_response(self.allocator, self.fd, response_status.NOTFOUND, null, null);
             return;
         };
         defer file.close();
@@ -113,7 +107,7 @@ const FileHandler = struct {
 
         const buffer = try self.allocator.alloc(u8, stat.size);
         _ = try file.readAll(buffer);
-        try send_response(self.allocator, self.fd, ok, headers, buffer);
+        try send_response(self.allocator, self.fd, response_status.OK, headers, buffer);
     }
 
     fn postMethodHandler(self: Self, request: *HttpRequest) !void {
@@ -126,7 +120,7 @@ const FileHandler = struct {
                 break;
             }
         } else {
-            try send_response(self.allocator, self.fd, notFound, null, null);
+            try send_response(self.allocator, self.fd, response_status.NOTFOUND, null, null);
             return;
         }
         var dir = try std.fs.openDirAbsolute(dirname, .{});
@@ -145,7 +139,7 @@ const FileHandler = struct {
         }
 
         _ = try file.write(content);
-        try send_response(self.allocator, self.fd, created, null, null);
+        try send_response(self.allocator, self.fd, response_status.CREATED, null, null);
     }
 
     pub fn matches(self: Self, request: *HttpRequest) bool {
@@ -178,7 +172,7 @@ const EchoHandler = struct {
 
         const response_header = try createHeader(self.allocator, "text/plain", response_body.len, request);
         defer self.allocator.free(response_header);
-        try send_response(self.allocator, self.fd, ok, response_header, response_body);
+        try send_response(self.allocator, self.fd, response_status.OK, response_header, response_body);
     }
 
     pub fn matches(self: Self, request: *HttpRequest) bool {
@@ -197,7 +191,7 @@ const UserAgentHandler = struct {
     pub fn handle(self: Self, request: *HttpRequest) !void {
         const body = request.headers.get("User-Agent").?;
         const header = try createHeader(self.allocator, "text/plain", body.len, request);
-        try send_response(self.allocator, self.fd, ok, header, body);
+        try send_response(self.allocator, self.fd, response_status.OK, header, body);
     }
 
     pub fn matches(self: Self, request: *HttpRequest) bool {
@@ -214,7 +208,7 @@ const RouteNotFoundHandler= struct {
 
     pub fn handle(self: Self, request: *HttpRequest) !void{
         _ = request;
-        try send_response(self.allocator, self.fd, notFound, null, null);
+        try send_response(self.allocator, self.fd, response_status.NOTFOUND, null, null);
     }
     fn matches(self: Self, request: *HttpRequest) bool {
         _ = self;
